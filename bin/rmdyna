@@ -1,0 +1,344 @@
+#!/usr/bin/env perl
+#
+# Created:         Mo 2019-08-26 11:14:54 CEST
+# Last Modified:   Sa 2021-02-13 21:22:21 CET
+#
+# rmdyna:
+#   Cleans LS-DYNA working directories.
+
+use strict;
+use warnings;
+
+# Include modules
+use File::Copy;
+use File::Spec::Functions qw(rel2abs);
+use File::stat;
+use FindBin qw($Script);
+use Getopt::Long qw(:config bundling);
+use POSIX qw(strftime);
+use Pod::Usage;
+
+# Initialize arguments
+my @kill = ('-');
+my @save = ('-');
+
+# LS-DYNA Programmausgabedateien
+my @dyna = (
+    '^abstat',
+    '^adptmp$',
+    '^bg_switch$',
+    '^binout',
+    '^bndout',
+    '^bnfile\.tmp$',
+    '^core\.\d+$',
+    '^cross_section_',
+    '^d3dump',
+    '^d3full',
+    '^d3hsp',
+    '^d3kil$',
+    '^d3plot',
+    '^d3thdt',
+    '^datshlmat.tmp$',
+    '^defgeo',
+    '^deforc',
+    '^disk8$',
+    '^drdisp.sif$',
+    '^dyna.lsda$',
+    '^dyna.str$',
+    '^elout',
+    '^fort.41$',
+    '^gceout',
+    '^glstat',
+    '^group_file$',
+    '^h3out',
+    '^jntforc',
+    '^kill_by_pid$',
+    '^ldcrvv',
+    '^lspost\.cfile$',
+    '^lspost\d?\.db$',
+    '^lspost\.msg$',
+    '^matsum',
+    '^meshsldrfn.k$',
+    '^meshshlrfn.k$',
+    '^messag',
+    '^mes\d{4}',
+    '^nasbdf',
+    '^ncforc',
+    '^node_des$',
+    '^nodfor',
+    '^nodout',
+    '^nohup.out$',
+    '^part_des$',
+    '^rbdout',
+    '^rcforc',
+    '^relax$',
+    '^rwforc',
+    '^runrsf',
+    '^sbtout',
+    '^secforc$',
+    '^sleout',
+    '^slsbdf',
+    '^slsgeo',
+    '^spcforc',
+    '^status\.out$',
+    '^spooles\.res', );
+
+# Queueing Programm-Ausgabedateien
+my @queue =
+  ( '^0_PBS_\d+\..+',
+    '^PE_HOSTFILE\.\d{4,}$',
+    '.e\d{4,}$',
+    '.o\d{4,}$', );
+
+# Variablen initialisieren
+my ($dir,$help,$man,$force,$copy,@user) = qw/. 0 0 0 0/;
+
+# Fetch command line options
+GetOptions(
+    "d|dir=s"  => \$dir,      # --dir <path>
+    "help|?"   => \$help,     # --help
+    "man"      => \$man,      # --man
+    "f|force!" => \$force,    # --force
+    "c|copy!"  => \$copy,     # --copy
+    "m|mask=s" => \@user,     # --mask <file1>,<file2>,...
+) or pod2usage(2);
+
+# Display help
+pod2usage(1) if $help;
+pod2usage(-exitval => 0, -verbose => 2) if $man;
+
+# Benutzerdefinierte RegEx auslesen
+@user = split( /,/, join( ',', @user ) );
+
+# Erzeuge absolute Verzeichnisangabe
+$dir = rel2abs($dir);
+
+# Wechsele in angegebenes Verzeichnis
+chdir $dir or die "Cannot change to $dir";
+
+# Lese Namen aller enthaltenen Dateien ein
+opendir( IN, '.' ) or die "Cannot read $dir";
+my @files = grep { -f $_ } readdir(IN);
+closedir(IN);
+
+# Erkenne LS-DYNA Ausgabedateien
+foreach my $file (@files) {
+    my $killed = 0;
+    foreach my $check ( @dyna, @queue, @user ) {
+        if ( $file =~ /$check/ ) {
+            push @kill, $file;
+            $killed = 1;
+            last;
+        }
+    }
+    push @save, $file unless $killed;
+}
+
+# Leerstrich entfernen
+shift @kill if scalar @kill > 1;
+shift @save if scalar @save > 1;
+
+# Wenn keine Dateien gefunden wurden, Abbruch
+exit if $kill[0] eq '-';
+
+# Programmkopf ausgeben
+printf "\n" .
+    "This is %s, a perl script to purge LS-DYNA working directories\n" .
+    "built %s\n\n",
+        uc($Script),
+        strftime("%Y/%m/%d",localtime(stat($0)->mtime));
+
+# Information ausgeben
+@_ = @kill;
+push @_, @save if $copy;
+print "Identified LS-DYNA files:\n  ",
+  ( join "\n  ", sort @_ ),    "\n\nRemaining files:\n  ",
+  ( join "\n  ", sort @save ), "\n\n";
+
+# Interaktive Eingabeaufforderung
+my $answer = '';
+$answer = 'y' if $force;
+
+# Wiederhole Eingabe nicht korrekt
+while ( lc($answer) !~ /^(?:y|n)/ ) {
+    print "", ( $copy ? 'BACKUP' : 'REMOVE' ), ' FILES [y] ? ';
+    $answer = <STDIN>;
+    chomp($answer);
+    $answer = 'y' unless $answer;
+}
+
+# Abbruch wenn gewünscht
+exit unless $answer eq 'y';
+print "\n";
+
+# Dateioperationen durchführen
+if ($copy) {
+
+    # Aktuelle Datumsangabe auslesen
+    my ( $year, $mon, $mday, $hour, $min, $sec ) =
+      (localtime)[ 5, 4, 3, 2, 1, 0 ];
+
+    # Jahreszahl korrigieren falls erforderlich
+    $year -= 100 if $year > 99;
+
+    # Datum und Uhrzeit formatieren
+    my $subdir = sprintf( "%02d%02d%02d_%02d%02d%02d",
+        $year, $mon + 1, $mday, $hour, $min, $sec );
+
+    # Backup Verzeichnis anlegen
+    die "Backup directory $dir exists" if -d $subdir;
+    mkdir $subdir or die "Cannot create backup directory $dir\n";
+
+    # Verschiebe Dateien in Unterverzeichnis
+    foreach my $file (@kill) {
+        print "MOVING file $file\n";
+        move( $file, $subdir ) or die "Cannot move $file to $subdir\n";
+    }
+
+    # Erzeuge Sicherheitskopie aller anderen Dateien
+    foreach my $file (@save) {
+        print "COPYING file $file\n";
+        copy( $file, $subdir ) or die "Cannot copy $file to $subdir\n";
+    }
+}
+else {
+
+    # Lösche markierte Dateien
+    foreach my $file (@kill) {
+        print "Removing file $file\n";
+        unlink $file or die "Cannot remove $file";
+    }
+}
+print "\n";
+
+
+__END__
+
+
+=head1 NAME
+
+rmdyna - Perl script to purge LS-DYNA working directories
+
+
+=head1 SYNOPSIS
+
+B<rmdyna> [I<options>]
+
+
+=head1 OPTIONS
+
+=over 4
+
+=item -B<d>, B<--dir>=F<path>
+
+change current working directory.
+
+=item -B<m> I<regex>, B<--mask>=I<regex>
+
+specify a comma-separated list of regular expressions to be added to the list of known LS-DYNA output files to search for.  Known LS-DYNA output file are:
+
+F<abstat>,
+F<adptmp>,
+F<bg_switch>,
+F<binout>,
+F<bndout>,
+F<bnfile.tmp>,
+F<d3dump>,
+F<d3hsp>,
+F<d3kil>,
+F<d3plot>,
+F<d3thdt>,
+F<disk8>,
+F<defgeo>,
+F<deforc>,
+F<disk8>,
+F<dyna.str>,
+F<elout>,
+F<fort.41>,
+F<gceout>,
+F<glstat>,
+F<jntforc>,
+F<kill_by_pid>,
+F<ldcrvv>,
+F<lspost.cfile>,
+F<lspost.db>,
+F<lspost.msg>,
+F<matsum>,
+F<messag>,
+F<nasbdf>,
+F<nodfor>,
+F<nodout>,
+F<nohup.out>,
+F<part_des>,
+F<rbdout>,
+F<rcforc>,
+F<runrsf>,
+F<rwforc>,
+F<sbtout>,
+F<secforc>,
+F<sleout>,
+F<slsbdf>,
+F<slsgeo>,
+F<spooles.res>,
+F<status.out>.
+
+=item B<-f>, B<--force>
+
+suppresses interactive mode.
+
+=item B<-c>, B<--copy>
+
+creates a directory named by the current date and time and moves all target files found to this directory instead of deleting them.  Backup copies of all remaining files in the working directory are included.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=item B<--help>
+
+Prints a brief help message and exits.
+
+=back
+
+
+=head1 DESCRIPTION
+
+This script parses a LS-DYNA working directory for output files and removes them.  The identified target files can either be moved to a backup directory or removed permanently.
+
+
+=head1 HISTORY
+
+ 2012-02-06  Original version
+ 2016-06-17  Bug fixes
+
+
+=head1 AUTHOR
+
+ Matthias Boljen (L<matthias.boljen@emi.fraunhofer.de>)
+
+
+=head1 COPYRIGHT AND LICENSE
+
+MIT License
+
+Copyright (c) 2021 Matthias Boljen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+=cut

@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 #
 # Created:         Mo 2019-08-26 11:14:54 CEST
-# Last Modified:   Do 2021-04-15 12:50:18 CEST
+# Last Modified:   Do 2021-04-15 12:53:14 CEST
 #
 # rmdyna:
 #   Cleans LS-DYNA working directories.
@@ -30,8 +30,8 @@ my @dyna = (
     '^binout',
     '^bndout',
     '^bnfile\.tmp$',
-    '^cont_profile.csv',
-    '^conf_profile.xy',
+    '^cont_profile.csv$',
+    '^cont_profile.xy$',
     '^core\.\d+$',
     '^cross_section_',
     '^d3dump',

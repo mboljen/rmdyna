@@ -11,7 +11,7 @@ $ make
 $ make install
 ```
 
-The default `PREFIX` is set to `/usr/local`.  In order to succesfully complete the installation, you need to have write permissions for the installation location.
+The default `PREFIX` is set to `/usr/local`.  In order to successfully complete the installation, you need to have write permissions for the installation location.
 
 ## Usage
 
@@ -76,7 +76,7 @@ $ rmdyna [--dir PATH] [--mask REGEX] [--force]  [--copy] [--help]
 
 + `-f`, `--force`
 
-  suppresses interactive mode.  
+  suppresses interactive mode.
 
 + `-c`, `--copy`
 
